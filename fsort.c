@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 
 //struct that'll be used to build link list
 struct statz 
@@ -14,15 +15,17 @@ struct statz
 	int size;
 	char * path;
 	struct statz *next;
-};
+} *head;
 
 //function prototype
 int check_mode(char*);
+struct statz* append(struct statz*, struct statz*);
 void scan_files(char*, int);
-void build_lst(int);
-struct statz* append(struct statz, struct statz*);
-struct statz* add_mid(struct statz, struct statz*);
+void split_line(char*, char**);
+struct statz *build_lst(int);
 int get_size(char*);
+void print_lst(struct statz*);
+
 
 //dat main
 int main(int argc, char **argv)
@@ -32,25 +35,92 @@ int main(int argc, char **argv)
 	pipe(pfds);
 
 	//if parent wait on info comin thru pipe
-	if(fork()) {build_lst(pfds[0]);}
+	if(fork()) {build_lst(pfds[0]);/* print_lst(head);*/}
 	//child - scan files and pass thru pipe to parent
 	else {scan_files(argv[1], pfds[1]);}
 
 	return 0;
 }
 
+void print_lst(struct statz *cp)
+{
+	while(cp)
+	{
+		printf("%i\t%s\n",cp -> size, cp -> path);
+		cp = cp -> next;
+	}
+}
+
 //parent main fuction. will wait for info comin thru da pipe
-void build_lst(int fd)
+struct statz *build_lst(int fd)
 {
 	char buf[100];
+	char *token;
+	struct statz *temp, *hp = NULL;
 
-	while(1)
+int i = 0;
+	while(i <= 5)
 	{
 		if(read(fd, buf, sizeof(buf)))
 		{
-			printf("%s\n", buf);
-		}
 			
+			//printf("%s\n",  buf);
+			temp = (struct statz *) malloc(sizeof(struct statz));
+			token = strtok(buf, " ");
+			temp -> size = atoi(token);
+			//printf("%i\t", temp -> size);
+			token = strtok(NULL, " ");
+			temp -> path = token;
+			temp -> next = NULL;
+			//printf("%s\n", temp -> path);
+			if(hp) hp = append(temp, hp);
+			else hp = temp;
+		
+		}
+		i++;
+		printf("%i\n",i);
+	}
+	
+	return hp;
+}
+
+
+//function adds new items to the list
+struct statz *append(struct statz *s, struct statz *hp)
+{
+	struct statz *cp, *pp;
+	cp = hp;
+	//printf("%i\t%s\n", s -> size, s -> path);
+//	printf("%i %i\n", cp -> size, s -> size);
+	
+	if(cp -> size > s -> size)
+	{
+//	printf("1\n");
+		s -> next = cp;
+		hp = s;
+		return hp;
+	}
+	else
+	{
+//	printf("2\n");
+		while(s -> size >= cp -> size)
+		{
+		printf("poop\n");
+			pp = cp;
+//	printf("%i %i\n", cp -> size, s -> size);
+			if(!cp -> next) break;
+			cp = cp -> next;
+		}
+	
+	
+	//	printf("3\n");
+		if(cp -> next)
+		{
+			pp -> next = s;
+			s -> next = cp;
+		}
+		else cp -> next = s;
+		return hp;
 	}
 }
 
@@ -66,12 +136,13 @@ void scan_files(char *file_name, int p_fd)
 	if(fd == -1) {perror("open file error"); exit(1);}
 	while(1)
 	{
+	printf("poop2\n");
 		//read dir entries
 		chrd = syscall(SYS_getdents64, fd, &ent, sizeof(struct dirent));
 		//check if any errors present
 		if(chrd == -1) {perror("error reading dir entries");}
 		//check if eof
-		if(chrd == 0) break;
+		if(chrd == 0){printf("end\n"); break;}
 		//if no errors process entries
 		if(strcmp(ent.d_name ,".") != 0 && strcmp(ent.d_name, "..") != 0 )
 		{
