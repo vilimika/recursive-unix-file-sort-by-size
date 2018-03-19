@@ -13,7 +13,7 @@
 struct statz 
 {
 	int size;
-	char * path;
+	char path[100];
 	struct statz *next;
 } *head;
 
@@ -35,9 +35,14 @@ int main(int argc, char **argv)
 	pipe(pfds);
 
 	//if parent wait on info comin thru pipe
-	if(fork()) {build_lst(pfds[0]);/* print_lst(head);*/}
+	if(fork()) 
+	{
+		head = build_lst(pfds[0]);
+		print_lst(head);
+		//printf("%i\t%s\n",head -> size, head -> path);
+	}
 	//child - scan files and pass thru pipe to parent
-	else {scan_files(argv[1], pfds[1]);}
+	else {scan_files(argv[1], pfds[1]); write(pfds[1], "-", sizeof(char));}
 
 	return 0;
 }
@@ -57,31 +62,35 @@ struct statz *build_lst(int fd)
 	char buf[100];
 	char *token;
 	struct statz *temp, *hp = NULL;
+	int i = 0;
 
-int i = 0;
-	while(i <= 5)
+	while(1)
 	{
-		if(read(fd, buf, sizeof(buf)))
+		read(fd, buf, sizeof(buf));
+		if(buf[0] == '-') return hp;
+		else
 		{
 			
-			//printf("%s\n",  buf);
+	//		printf("%s\n",  buf);
 			temp = (struct statz *) malloc(sizeof(struct statz));
-			token = strtok(buf, " ");
+			token = strtok(buf, "@");
+	//		printf("%s\t",  token);
 			temp -> size = atoi(token);
-			//printf("%i\t", temp -> size);
-			token = strtok(NULL, " ");
-			temp -> path = token;
+	//		printf("processing file: %i\t", temp -> size);
+			token = strtok(NULL, "@");
+			strcpy(temp -> path, token);
+	//		printf("%s\n",  token);
 			temp -> next = NULL;
-			//printf("%s\n", temp -> path);
+	//		printf("%s\n", temp -> path);
 			if(hp) hp = append(temp, hp);
-			else hp = temp;
-		
+			else 
+			{
+				hp = temp;
+				printf("adding head: %i\t%s\n", hp -> size, hp -> path);
+			}
 		}
-		i++;
-		printf("%i\n",i);
 	}
 	
-	return hp;
 }
 
 
@@ -90,38 +99,54 @@ struct statz *append(struct statz *s, struct statz *hp)
 {
 	struct statz *cp, *pp;
 	cp = hp;
-	//printf("%i\t%s\n", s -> size, s -> path);
+
+	/*
+	s->next = hp;
+	hp = s;
+	*/
+	
+
+	//printf("%i\t%s\n", hp-> size, hp-> path);
+	
+//	printf("%i\t%s\n", s -> size, s -> path);   11462
 //	printf("%i %i\n", cp -> size, s -> size);
 	
 	if(cp -> size > s -> size)
 	{
-//	printf("1\n");
 		s -> next = cp;
 		hp = s;
 		return hp;
+		printf("adding in first if: %i\t%s\n", s-> size, s -> path);
 	}
 	else
 	{
-//	printf("2\n");
 		while(s -> size >= cp -> size)
 		{
-		printf("poop\n");
 			pp = cp;
-//	printf("%i %i\n", cp -> size, s -> size);
 			if(!cp -> next) break;
 			cp = cp -> next;
 		}
+
 	
-	
-	//	printf("3\n");
 		if(cp -> next)
 		{
 			pp -> next = s;
 			s -> next = cp;
+			printf("adding in 2nd if: %i\t%s\n", s-> size, s -> path);
 		}
-		else cp -> next = s;
+		else if(s -> size < cp -> size)
+		{
+			pp -> next = s;
+			s -> next = cp;
+		}
+		else
+		{
+			cp -> next = s;
+			printf("adding in else: %i\t%s\n", s-> size, s -> path);
+		}
 		return hp;
 	}
+
 }
 
 //main child function. will find files and pass em thru the pipe
@@ -136,13 +161,12 @@ void scan_files(char *file_name, int p_fd)
 	if(fd == -1) {perror("open file error"); exit(1);}
 	while(1)
 	{
-	printf("poop2\n");
 		//read dir entries
 		chrd = syscall(SYS_getdents64, fd, &ent, sizeof(struct dirent));
 		//check if any errors present
 		if(chrd == -1) {perror("error reading dir entries");}
 		//check if eof
-		if(chrd == 0){printf("end\n"); break;}
+		if(chrd == 0) break;
 		//if no errors process entries
 		if(strcmp(ent.d_name ,".") != 0 && strcmp(ent.d_name, "..") != 0 )
 		{
@@ -151,17 +175,18 @@ void scan_files(char *file_name, int p_fd)
 			//its a file - write da pipe
 			if(mode == 1)
 			{	
+	//printf("%s\n", file_name);
 				size = get_size(buf);
-				sprintf(buf1, "%i %s", size, buf); 
+				sprintf(buf1, "%i@%s", size, buf); 
 				write(p_fd, buf1, sizeof(buf1));
 			}
 			//its a dir - process
 			else if(mode == 2) {scan_files(buf, p_fd);}
 		}
-		
 		//move over file pointer
 		lseek(fd, ent.d_off, SEEK_SET);
 	}
+
 }
 
 //function returns size of file 
@@ -170,7 +195,7 @@ int get_size(char *file_name)
 	struct stat sa;
 	int result, size;
 
-	result = lstat(file_name, &sa);
+	result = stat(file_name, &sa);
 	if(result == -1) {printf("file info unavailable for %s", file_name); exit(1);}
 		
 	size = sa.st_size;
@@ -182,17 +207,13 @@ int check_mode(char *file_name)
 {
 	struct stat sa;
 	mode_t mode;
-	int result, fd;
+	int result;
 
-	fd = open(file_name, O_RDONLY);
-	if(fd == -1) {perror("error opening file"); exit(1);}
-
-	result = fstat(fd, &sa);
+	result = stat(file_name, &sa);
 	if(result == -1) {printf("file info unavailable for %s", file_name); exit(1);}
 	
 	mode = sa.st_mode;
 
-	close(fd);
 
 	if(S_ISREG(mode)) return 1;
 	if(S_ISDIR(mode)) return 2;
